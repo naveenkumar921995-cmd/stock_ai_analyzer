@@ -45,7 +45,19 @@ if st.session_state.user:
         symbol = st.text_input("Enter NSE Stock (e.g. RELIANCE.NS)")
         if st.button("Analyze"):
             result = analyze_stock(symbol)
-            st.write(result)
+
+if "Error" in result:
+    st.error(result["Error"])
+else:
+    st.write(result)
+
+    explanation = ai_explain(
+        result["Stock"],
+        result["RSI"],
+        result["Signal"]
+    )
+    st.info(explanation)
+
             explanation = ai_explain(
                 result["Stock"],
                 result["RSI"],
