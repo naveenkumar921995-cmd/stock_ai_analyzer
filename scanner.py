@@ -1,48 +1,35 @@
 import yfinance as yf
 import pandas as pd
+import ta
+
 
 def analyze_stock(symbol):
+    try:
+        # Download stock data
+        df = yf.download(symbol, period="6mo", interval="1d")
 
-    df = yf.download(symbol, period="6mo", progress=False)
+        if df.empty:
+            return {"error": "Invalid symbol or no data available."}
 
-    # 🚨 Check if data returned
-    if df.empty or len(df) < 20:
+        # Calculate RSI
+        df["RSI"] = ta.momentum.RSIIndicator(df["Close"]).rsi()
+
+        # Get latest RSI value (IMPORTANT FIX)
+        latest_rsi = df["RSI"].iloc[-1]
+
+        signal = "Neutral"
+
+        if latest_rsi < 30:
+            signal = "Oversold (Buy Signal)"
+        elif latest_rsi > 70:
+            signal = "Overbought (Sell Signal)"
+
         return {
-            "Stock": symbol,
-            "Error": "No data found. Check symbol format (Use .NS for NSE)."
+            "symbol": symbol.upper(),
+            "current_price": round(df["Close"].iloc[-1], 2),
+            "rsi": round(float(latest_rsi), 2),
+            "signal": signal
         }
 
-    df["RSI"] = 100 - (100 / (1 + df["Close"].pct_change().rolling(14).mean()))
-    df["MA20"] = df["Close"].rolling(20).mean()
-    df["MA50"] = df["Close"].rolling(50).mean()
-
-    df = df.dropna()
-
-    # 🚨 Check again after indicators
-    if df.empty:
-        return {
-            "Stock": symbol,
-            "Error": "Not enough data to calculate indicators."
-        }
-
-    latest = df.iloc[-1]
-
-    rsi = latest["RSI"]
-    price = latest["Close"]
-
-    if rsi < 30:
-        signal = "BUY"
-    elif rsi > 70:
-        signal = "SELL"
-    else:
-        signal = "HOLD"
-
-    risk = abs(rsi - 50)
-
-    return {
-        "Stock": symbol,
-        "Price": round(price, 2),
-        "RSI": round(rsi, 2),
-        "Signal": signal,
-        "Risk Score": round(risk, 2)
-    }
+    except Exception as e:
+        return {"error": str(e)}
