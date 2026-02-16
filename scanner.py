@@ -1,20 +1,28 @@
 import yfinance as yf
 import pandas as pd
-import ta
+
+
+def calculate_rsi(data, period=14):
+    delta = data.diff()
+
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+
+    return rsi
 
 
 def analyze_stock(symbol):
     try:
-        # Download stock data
         df = yf.download(symbol, period="6mo", interval="1d")
 
         if df.empty:
             return {"error": "Invalid symbol or no data available."}
 
-        # Calculate RSI
-        df["RSI"] = ta.momentum.RSIIndicator(df["Close"]).rsi()
+        df["RSI"] = calculate_rsi(df["Close"])
 
-        # Get latest RSI value (IMPORTANT FIX)
         latest_rsi = df["RSI"].iloc[-1]
 
         signal = "Neutral"
