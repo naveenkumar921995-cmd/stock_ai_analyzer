@@ -31,11 +31,22 @@ timeframe = st.sidebar.selectbox(
 # ===============================
 # FETCH DATA
 # ===============================
-data = yf.download(stock, period=timeframe)
+# ===============================
+# FETCH DATA (FIXED)
+# ===============================
+data = yf.download(stock, period=timeframe, auto_adjust=True)
 
 if data.empty:
     st.error("Invalid Stock Symbol")
     st.stop()
+
+# FIX multi-index column issue
+if isinstance(data.columns, pd.MultiIndex):
+    data.columns = data.columns.get_level_values(0)
+
+data = data.reset_index()
+data.set_index("Date", inplace=True)
+
 
 # ===============================
 # INDICATORS
