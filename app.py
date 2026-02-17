@@ -3,11 +3,27 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import time
 
 st.set_page_config(page_title="360° Stock Analyzer", layout="wide")
 
 st.title("📊 360° Equity Analysis Engine")
 st.markdown("Fundamental + Technical + Risk + AI Scoring Model")
+
+# -------------------------------------------------
+# SAFE DATA FETCH WITH CACHING
+# -------------------------------------------------
+
+@st.cache_data(ttl=600)  # cache for 10 minutes
+def fetch_stock_data(symbol):
+    try:
+        ticker = yf.Ticker(symbol)
+        history = ticker.history(period="5y")
+        financials = ticker.financials
+        return history, financials
+    except Exception:
+        return None, None
+
 
 # -------------------------------------------------
 # Utility Functions
@@ -105,12 +121,12 @@ symbol = st.sidebar.text_input(
 
 if symbol:
 
-    ticker = yf.Ticker(symbol)
+    with st.spinner("Fetching data safely..."):
+        history, financials = fetch_stock_data(symbol)
+        time.sleep(1)  # slight delay to avoid burst calls
 
-    history = ticker.history(period="5y")
-
-    if history.empty:
-        st.error("Invalid symbol or data not available.")
+    if history is None or history.empty:
+        st.error("⚠ Data not available or Yahoo rate limit exceeded. Try again after few minutes.")
         st.stop()
 
     st.subheader(symbol)
@@ -131,10 +147,9 @@ if symbol:
     latest_rsi = history["RSI"].iloc[-1]
 
     # -------------------------------------------------
-    # Financials (Safe Handling)
+    # Fundamental CAGR
     # -------------------------------------------------
 
-    financials = ticker.financials
     revenue_cagr = None
     profit_cagr = None
 
