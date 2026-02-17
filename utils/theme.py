@@ -17,4 +17,3 @@ def apply_dark_theme():
     }
     </style>
     """, unsafe_allow_html=True)
-
