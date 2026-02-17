@@ -3,174 +3,174 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import time
 
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", page_title="AI Trading Terminal")
 
-# ---------------- DARK THEME ---------------- #
-st.markdown("""
-<style>
-.stApp {
-    background-color: #0B0F19;
-    color: white;
-}
-section[data-testid="stSidebar"] {
-    background-color: #111827;
-}
-.signal-buy {color:#00FF9D; font-weight:bold; font-size:18px;}
-.signal-sell {color:#FF4B4B; font-weight:bold; font-size:18px;}
-.signal-neutral {color:#FFD700; font-weight:bold; font-size:18px;}
-</style>
-""", unsafe_allow_html=True)
+# ===============================
+# AUTO REFRESH
+# ===============================
+refresh_rate = st.sidebar.selectbox("Auto Refresh (seconds)", [0, 30, 60, 120])
+if refresh_rate > 0:
+    time.sleep(refresh_rate)
+    st.rerun()
 
-st.title("📈 Trading Dashboard Pro")
+# ===============================
+# INPUT SECTION
+# ===============================
+st.sidebar.title("📊 Market Controls")
 
-# ---------------- SIDEBAR ---------------- #
-symbol = st.sidebar.text_input("Stock Symbol", "RELIANCE.NS")
+stock = st.sidebar.text_input("Enter Stock Symbol", "RELIANCE.NS")
 
 timeframe = st.sidebar.selectbox(
     "Select Timeframe",
-    ["1mo", "3mo", "6mo", "1y", "5y"],
-    index=3
+    ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y"]
 )
 
-# ---------------- RSI ---------------- #
-def calculate_rsi(data, period=14):
-    delta = data.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.rolling(period).mean()
-    avg_loss = loss.rolling(period).mean()
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
+# ===============================
+# FETCH DATA
+# ===============================
+data = yf.download(stock, period=timeframe)
 
-# ---------------- MACD ---------------- #
-def calculate_macd(data):
-    exp1 = data.ewm(span=12, adjust=False).mean()
-    exp2 = data.ewm(span=26, adjust=False).mean()
-    macd = exp1 - exp2
-    signal = macd.ewm(span=9, adjust=False).mean()
-    return macd, signal
+if data.empty:
+    st.error("Invalid Stock Symbol")
+    st.stop()
 
-# ---------------- DATA LOAD ---------------- #
-if symbol:
+# ===============================
+# INDICATORS
+# ===============================
 
-    ticker = yf.Ticker(symbol)
-    df = ticker.history(period=timeframe)
+# EMA
+data['EMA20'] = data['Close'].ewm(span=20).mean()
+data['EMA50'] = data['Close'].ewm(span=50).mean()
 
-    if not df.empty:
+# Bollinger Bands
+data['MA20'] = data['Close'].rolling(window=20).mean()
+data['Upper'] = data['MA20'] + 2 * data['Close'].rolling(window=20).std()
+data['Lower'] = data['MA20'] - 2 * data['Close'].rolling(window=20).std()
 
-        df["RSI"] = calculate_rsi(df["Close"])
-        df["MACD"], df["MACD_Signal"] = calculate_macd(df["Close"])
+# MACD
+data['EMA12'] = data['Close'].ewm(span=12).mean()
+data['EMA26'] = data['Close'].ewm(span=26).mean()
+data['MACD'] = data['EMA12'] - data['EMA26']
+data['Signal'] = data['MACD'].ewm(span=9).mean()
 
-        latest = df.iloc[-1]
-        prev = df.iloc[-2]
+# RSI
+delta = data['Close'].diff()
+gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+rs = gain / loss
+data['RSI'] = 100 - (100 / (1 + rs))
 
-        price = round(latest["Close"], 2)
-        change = round(price - prev["Close"], 2)
-        change_pct = round((change / prev["Close"]) * 100, 2)
-        rsi = round(latest["RSI"], 2)
+# ===============================
+# SIGNAL LOGIC
+# ===============================
+latest = data.iloc[-1]
 
-        # Signal Logic
-        if rsi < 30:
-            signal = "Strong Buy"
-            signal_class = "signal-buy"
-        elif rsi > 70:
-            signal = "Strong Sell"
-            signal_class = "signal-sell"
-        else:
-            signal = "Neutral"
-            signal_class = "signal-neutral"
+signal = "HOLD"
 
-        # ---------------- TOP METRICS ---------------- #
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Price", f"₹ {price}", f"{change} ({change_pct}%)")
-        col2.metric("RSI", rsi)
-        col3.markdown(f"<div class='{signal_class}'>Signal: {signal}</div>", unsafe_allow_html=True)
+if latest['EMA20'] > latest['EMA50'] and latest['RSI'] > 50:
+    signal = "BUY 🚀"
+elif latest['EMA20'] < latest['EMA50'] and latest['RSI'] < 50:
+    signal = "SELL 🔻"
 
-        st.divider()
+# ===============================
+# DASHBOARD HEADER
+# ===============================
+st.title("📈 AI Trading Dashboard")
 
-        # ---------------- CANDLESTICK ---------------- #
-        st.subheader("🕯 Candlestick Chart")
+col1, col2, col3, col4 = st.columns(4)
 
-        fig = go.Figure()
+col1.metric("Current Price", f"₹{round(latest['Close'],2)}")
+col2.metric("RSI", round(latest['RSI'],2))
+col3.metric("MACD", round(latest['MACD'],2))
+col4.metric("Signal", signal)
 
-        fig.add_trace(go.Candlestick(
-            x=df.index,
-            open=df["Open"],
-            high=df["High"],
-            low=df["Low"],
-            close=df["Close"],
-            name="Price"
-        ))
+# ===============================
+# CHART SECTION
+# ===============================
+fig = make_subplots(
+    rows=3, cols=1,
+    shared_xaxes=True,
+    vertical_spacing=0.03,
+    row_heights=[0.6, 0.2, 0.2]
+)
 
-        fig.update_layout(
-            template="plotly_dark",
-            xaxis_rangeslider_visible=False,
-            height=500
-        )
+# Candlestick
+fig.add_trace(go.Candlestick(
+    x=data.index,
+    open=data['Open'],
+    high=data['High'],
+    low=data['Low'],
+    close=data['Close'],
+    name="Candlestick"
+), row=1, col=1)
 
-        st.plotly_chart(fig, use_container_width=True)
+# EMA
+fig.add_trace(go.Scatter(
+    x=data.index,
+    y=data['EMA20'],
+    line=dict(color='blue'),
+    name="EMA20"
+), row=1, col=1)
 
-        st.divider()
+fig.add_trace(go.Scatter(
+    x=data.index,
+    y=data['EMA50'],
+    line=dict(color='orange'),
+    name="EMA50"
+), row=1, col=1)
 
-        # ---------------- MACD ---------------- #
-        st.subheader("📊 MACD Indicator")
+# Bollinger Bands
+fig.add_trace(go.Scatter(
+    x=data.index,
+    y=data['Upper'],
+    line=dict(color='grey'),
+    name="Upper Band"
+), row=1, col=1)
 
-        macd_fig = go.Figure()
-        macd_fig.add_trace(go.Scatter(
-            x=df.index, y=df["MACD"],
-            mode="lines", name="MACD"
-        ))
-        macd_fig.add_trace(go.Scatter(
-            x=df.index, y=df["MACD_Signal"],
-            mode="lines", name="Signal Line"
-        ))
+fig.add_trace(go.Scatter(
+    x=data.index,
+    y=data['Lower'],
+    line=dict(color='grey'),
+    name="Lower Band"
+), row=1, col=1)
 
-        macd_fig.update_layout(
-            template="plotly_dark",
-            height=400
-        )
+# MACD
+fig.add_trace(go.Scatter(
+    x=data.index,
+    y=data['MACD'],
+    line=dict(color='green'),
+    name="MACD"
+), row=2, col=1)
 
-        st.plotly_chart(macd_fig, use_container_width=True)
+fig.add_trace(go.Scatter(
+    x=data.index,
+    y=data['Signal'],
+    line=dict(color='red'),
+    name="Signal Line"
+), row=2, col=1)
 
-        st.divider()
+# RSI
+fig.add_trace(go.Scatter(
+    x=data.index,
+    y=data['RSI'],
+    line=dict(color='purple'),
+    name="RSI"
+), row=3, col=1)
 
-        # ---------------- RSI ---------------- #
-        st.subheader("📉 RSI")
+fig.update_layout(height=900, xaxis_rangeslider_visible=False)
 
-        rsi_fig = go.Figure()
-        rsi_fig.add_trace(go.Scatter(
-            x=df.index, y=df["RSI"],
-            mode="lines", name="RSI"
-        ))
-        rsi_fig.add_hline(y=70)
-        rsi_fig.add_hline(y=30)
+st.plotly_chart(fig, use_container_width=True)
 
-        rsi_fig.update_layout(
-            template="plotly_dark",
-            height=400
-        )
+# ===============================
+# 52 WEEK DATA
+# ===============================
+year_data = yf.download(stock, period="1y")
 
-        st.plotly_chart(rsi_fig, use_container_width=True)
+st.subheader("📊 52 Week Stats")
 
-        st.divider()
-
-        # ---------------- VOLUME ---------------- #
-        st.subheader("📊 Volume")
-
-        volume_fig = go.Figure()
-        volume_fig.add_trace(go.Bar(
-            x=df.index, y=df["Volume"],
-            name="Volume"
-        ))
-
-        volume_fig.update_layout(
-            template="plotly_dark",
-            height=300
-        )
-
-        st.plotly_chart(volume_fig, use_container_width=True)
-
-    else:
-        st.error("No data found.")
+col5, col6 = st.columns(2)
+col5.metric("52 Week High", f"₹{round(year_data['High'].max(),2)}")
+col6.metric("52 Week Low", f"₹{round(year_data['Low'].min(),2)}")
