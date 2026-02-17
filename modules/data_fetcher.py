@@ -1,23 +1,24 @@
 import yfinance as yf
 import streamlit as st
+import pandas as pd
 
-@st.cache_data(ttl=600)   # Cache for 10 minutes
+@st.cache_data(ttl=600)
 def get_stock_data(symbol):
 
     try:
         ticker = yf.Ticker(symbol)
 
-        # Use history instead of .info (less blocking)
         history = ticker.history(period="2y")
 
-        # Use fast_info instead of info (safer)
         fast_info = ticker.fast_info
 
-        financials = ticker.financials.T if ticker.financials is not None else None
-        cashflow = ticker.cashflow.T if ticker.cashflow is not None else None
+        # Convert fast_info to normal dict (important!)
+        info = dict(fast_info) if fast_info else {}
 
-        return ticker, fast_info, history, financials, cashflow
+        financials = ticker.financials.T if ticker.financials is not None else pd.DataFrame()
+        cashflow = ticker.cashflow.T if ticker.cashflow is not None else pd.DataFrame()
 
-    except Exception as e:
-        st.error("Data fetch failed. Possibly rate limited.")
-        return None, None, None, None, None
+        return info, history, financials, cashflow
+
+    except Exception:
+        return None, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
