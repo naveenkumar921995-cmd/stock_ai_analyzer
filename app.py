@@ -16,7 +16,11 @@ st.title("📊 360° Professional Stock Analyzer")
 
 symbol = st.text_input("Enter NSE Symbol", "RELIANCE.NS")
 
-ticker, info, history, financials, cashflow = get_stock_data(symbol)
+col1.metric("Market Cap", info.get("marketCap"))
+col2.metric("PE Ratio", info.get("lastPrice"))
+col3.metric("Day High", info.get("dayHigh"))
+col4.metric("Day Low", info.get("dayLow"))
+
 
 if history.empty:
     st.error("Invalid Symbol")
