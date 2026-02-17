@@ -3,52 +3,34 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="Stock Screener Pro", layout="wide")
+st.set_page_config(layout="wide")
 
-# ---------------- PREMIUM DARK THEME ---------------- #
+# ---------------- DARK TRADING THEME ---------------- #
 st.markdown("""
 <style>
-body {
-    background-color: #0E1117;
-}
 .stApp {
-    background-color: #0E1117;
+    background-color: #0B0F19;
     color: white;
 }
 section[data-testid="stSidebar"] {
     background-color: #111827;
 }
-.metric-card {
-    background-color: #1F2937;
-    padding: 20px;
-    border-radius: 15px;
+.metric-box {
+    background-color: #1E293B;
+    padding: 15px;
+    border-radius: 12px;
     text-align: center;
 }
-.score-high {
-    color: #00FF9D;
-    font-weight: bold;
-}
-.score-mid {
-    color: #FFD700;
-    font-weight: bold;
-}
-.score-low {
-    color: #FF4B4B;
-    font-weight: bold;
-}
+.signal-buy {color:#00FF9D; font-weight:bold;}
+.signal-sell {color:#FF4B4B; font-weight:bold;}
+.signal-neutral {color:#FFD700; font-weight:bold;}
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------- HEADER ---------------- #
-st.title("📊 Stock Screener Pro")
-st.caption("Premium Fundamental + Technical Stock Analyzer")
+st.title("📈 Stock Trading Dashboard Pro")
 
-# ---------------- STOCK LIST ---------------- #
-STOCK_LIST = [
-    "RELIANCE.NS", "TCS.NS", "INFY.NS",
-    "HDFCBANK.NS", "ICICIBANK.NS",
-    "AAPL", "MSFT", "GOOGL"
-]
+# ---------------- SYMBOL INPUT ---------------- #
+symbol = st.sidebar.text_input("Enter Stock Symbol", "RELIANCE.NS")
 
 # ---------------- RSI FUNCTION ---------------- #
 def calculate_rsi(data, period=14):
@@ -61,96 +43,92 @@ def calculate_rsi(data, period=14):
     rsi = 100 - (100 / (1 + rs))
     return rsi
 
-# ---------------- SIDEBAR ---------------- #
-st.sidebar.markdown("## 🔎 Screener Filters")
+if symbol:
 
-pe_max = st.sidebar.slider("Max P/E", 5, 100, 30)
-roe_min = st.sidebar.slider("Min ROE (%)", 0, 50, 10)
-rsi_max = st.sidebar.slider("Max RSI", 10, 90, 60)
-market_cap_min = st.sidebar.number_input("Min Market Cap (Cr)", value=10000)
+    ticker = yf.Ticker(symbol)
+    df = ticker.history(period="1y")
 
-run_screen = st.sidebar.button("🚀 Run Premium Scan")
+    if not df.empty:
 
-# ---------------- SCREENER ---------------- #
-if run_screen:
+        df["MA50"] = df["Close"].rolling(50).mean()
+        df["MA200"] = df["Close"].rolling(200).mean()
+        df["RSI"] = calculate_rsi(df["Close"])
 
-    st.markdown("### 🔍 Screening Results")
+        latest = df.iloc[-1]
+        prev = df.iloc[-2]
 
-    results = []
+        price = round(latest["Close"], 2)
+        change = round(price - prev["Close"], 2)
+        change_pct = round((change / prev["Close"]) * 100, 2)
+        rsi = round(latest["RSI"], 2)
 
-    for symbol in STOCK_LIST:
-        try:
-            ticker = yf.Ticker(symbol)
-            info = ticker.info
-            hist = ticker.history(period="6mo")
+        week52_high = round(df["High"].max(), 2)
+        week52_low = round(df["Low"].min(), 2)
 
-            if hist.empty:
-                continue
+        # Signal Logic
+        if rsi < 30:
+            signal = "Strong Buy"
+            signal_class = "signal-buy"
+        elif rsi > 70:
+            signal = "Strong Sell"
+            signal_class = "signal-sell"
+        else:
+            signal = "Neutral"
+            signal_class = "signal-neutral"
 
-            hist["RSI"] = calculate_rsi(hist["Close"])
-            rsi = round(float(hist["RSI"].iloc[-1]), 2)
-            price = round(float(hist["Close"].iloc[-1]), 2)
+        # ---------------- TOP METRICS ---------------- #
+        col1, col2, col3, col4, col5 = st.columns(5)
 
-            pe = info.get("trailingPE", None)
-            roe = info.get("returnOnEquity", None)
-            market_cap = info.get("marketCap", None)
+        col1.metric("Price", f"₹ {price}", f"{change} ({change_pct}%)")
+        col2.metric("RSI", rsi)
+        col3.metric("52W High", week52_high)
+        col4.metric("52W Low", week52_low)
+        col5.markdown(f"<div class='{signal_class}'>Signal: {signal}</div>", unsafe_allow_html=True)
 
-            if roe:
-                roe = roe * 100
+        st.divider()
 
-            if market_cap:
-                market_cap_cr = market_cap / 10000000
-            else:
-                market_cap_cr = 0
+        # ---------------- PRICE CHART ---------------- #
+        st.subheader("📊 Price Chart (Close, MA50, MA200)")
+        st.line_chart(df[["Close", "MA50", "MA200"]])
 
-            if pe and pe <= pe_max and \
-               roe and roe >= roe_min and \
-               rsi <= rsi_max and \
-               market_cap_cr >= market_cap_min:
+        st.divider()
 
-                score = 0
-                if pe < 20: score += 25
-                if roe > 15: score += 25
-                if rsi < 40: score += 25
-                if market_cap_cr > 50000: score += 25
+        # ---------------- RSI CHART ---------------- #
+        st.subheader("📉 RSI Indicator")
+        st.line_chart(df["RSI"])
 
-                results.append({
-                    "Symbol": symbol,
-                    "Price": price,
-                    "PE": round(pe,2),
-                    "ROE %": round(roe,2),
-                    "RSI": rsi,
-                    "Market Cap (Cr)": round(market_cap_cr,2),
-                    "Score": score
-                })
+        st.divider()
 
-        except:
-            continue
+        # ---------------- VOLUME CHART ---------------- #
+        st.subheader("📊 Volume")
+        st.bar_chart(df["Volume"])
 
-    if results:
-        df = pd.DataFrame(results).sort_values(by="Score", ascending=False)
+        st.divider()
 
-        # Score Color
-        def score_color(val):
-            if val >= 75:
-                return "color: #00FF9D"
-            elif val >= 50:
-                return "color: #FFD700"
-            else:
-                return "color: #FF4B4B"
+        # ---------------- FUNDAMENTALS ---------------- #
+        st.subheader("📑 Fundamental Snapshot")
 
-        st.dataframe(
-            df.style.applymap(score_color, subset=["Score"]),
-            use_container_width=True
-        )
+        info = ticker.info
 
-        csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "⬇ Download Results",
-            csv,
-            "premium_screen_results.csv",
-            "text/csv"
-        )
+        pe = info.get("trailingPE", "N/A")
+        pb = info.get("priceToBook", "N/A")
+        roe = info.get("returnOnEquity", "N/A")
+        eps = info.get("trailingEps", "N/A")
+        market_cap = info.get("marketCap", 0)
+
+        if roe != "N/A":
+            roe = round(roe * 100, 2)
+
+        if market_cap:
+            market_cap = round(market_cap / 10000000, 2)
+
+        f1, f2, f3, f4, f5 = st.columns(5)
+
+        f1.metric("P/E", pe)
+        f2.metric("P/B", pb)
+        f3.metric("ROE %", roe)
+        f4.metric("EPS", eps)
+        f5.metric("Market Cap (Cr)", market_cap)
 
     else:
-        st.warning("No stocks matched your premium criteria.")
+        st.error("No data found for this symbol.")
