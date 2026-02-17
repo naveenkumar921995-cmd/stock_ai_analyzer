@@ -16,7 +16,8 @@ st.title("📊 360° Professional Stock Analyzer")
 
 symbol = st.text_input("Enter NSE Symbol", "RELIANCE.NS")
 
-ticker, info, history, financials, cashflow = get_stock_data(symbol)
+info, history, financials, cashflow = get_stock_data(symbol)
+
 
 if history is None or history.empty:
     st.error("Invalid Symbol or Rate Limit Hit")
