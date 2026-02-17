@@ -2,10 +2,11 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import plotly.graph_objects as go
 
 st.set_page_config(layout="wide")
 
-# ---------------- DARK TRADING THEME ---------------- #
+# ---------------- DARK THEME ---------------- #
 st.markdown("""
 <style>
 .stApp {
@@ -15,24 +16,24 @@ st.markdown("""
 section[data-testid="stSidebar"] {
     background-color: #111827;
 }
-.metric-box {
-    background-color: #1E293B;
-    padding: 15px;
-    border-radius: 12px;
-    text-align: center;
-}
-.signal-buy {color:#00FF9D; font-weight:bold;}
-.signal-sell {color:#FF4B4B; font-weight:bold;}
-.signal-neutral {color:#FFD700; font-weight:bold;}
+.signal-buy {color:#00FF9D; font-weight:bold; font-size:18px;}
+.signal-sell {color:#FF4B4B; font-weight:bold; font-size:18px;}
+.signal-neutral {color:#FFD700; font-weight:bold; font-size:18px;}
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📈 Stock Trading Dashboard Pro")
+st.title("📈 Trading Dashboard Pro")
 
-# ---------------- SYMBOL INPUT ---------------- #
-symbol = st.sidebar.text_input("Enter Stock Symbol", "RELIANCE.NS")
+# ---------------- SIDEBAR ---------------- #
+symbol = st.sidebar.text_input("Stock Symbol", "RELIANCE.NS")
 
-# ---------------- RSI FUNCTION ---------------- #
+timeframe = st.sidebar.selectbox(
+    "Select Timeframe",
+    ["1mo", "3mo", "6mo", "1y", "5y"],
+    index=3
+)
+
+# ---------------- RSI ---------------- #
 def calculate_rsi(data, period=14):
     delta = data.diff()
     gain = delta.clip(lower=0)
@@ -43,16 +44,24 @@ def calculate_rsi(data, period=14):
     rsi = 100 - (100 / (1 + rs))
     return rsi
 
+# ---------------- MACD ---------------- #
+def calculate_macd(data):
+    exp1 = data.ewm(span=12, adjust=False).mean()
+    exp2 = data.ewm(span=26, adjust=False).mean()
+    macd = exp1 - exp2
+    signal = macd.ewm(span=9, adjust=False).mean()
+    return macd, signal
+
+# ---------------- DATA LOAD ---------------- #
 if symbol:
 
     ticker = yf.Ticker(symbol)
-    df = ticker.history(period="1y")
+    df = ticker.history(period=timeframe)
 
     if not df.empty:
 
-        df["MA50"] = df["Close"].rolling(50).mean()
-        df["MA200"] = df["Close"].rolling(200).mean()
         df["RSI"] = calculate_rsi(df["Close"])
+        df["MACD"], df["MACD_Signal"] = calculate_macd(df["Close"])
 
         latest = df.iloc[-1]
         prev = df.iloc[-2]
@@ -61,9 +70,6 @@ if symbol:
         change = round(price - prev["Close"], 2)
         change_pct = round((change / prev["Close"]) * 100, 2)
         rsi = round(latest["RSI"], 2)
-
-        week52_high = round(df["High"].max(), 2)
-        week52_low = round(df["Low"].min(), 2)
 
         # Signal Logic
         if rsi < 30:
@@ -77,58 +83,94 @@ if symbol:
             signal_class = "signal-neutral"
 
         # ---------------- TOP METRICS ---------------- #
-        col1, col2, col3, col4, col5 = st.columns(5)
-
+        col1, col2, col3 = st.columns(3)
         col1.metric("Price", f"₹ {price}", f"{change} ({change_pct}%)")
         col2.metric("RSI", rsi)
-        col3.metric("52W High", week52_high)
-        col4.metric("52W Low", week52_low)
-        col5.markdown(f"<div class='{signal_class}'>Signal: {signal}</div>", unsafe_allow_html=True)
+        col3.markdown(f"<div class='{signal_class}'>Signal: {signal}</div>", unsafe_allow_html=True)
 
         st.divider()
 
-        # ---------------- PRICE CHART ---------------- #
-        st.subheader("📊 Price Chart (Close, MA50, MA200)")
-        st.line_chart(df[["Close", "MA50", "MA200"]])
+        # ---------------- CANDLESTICK ---------------- #
+        st.subheader("🕯 Candlestick Chart")
+
+        fig = go.Figure()
+
+        fig.add_trace(go.Candlestick(
+            x=df.index,
+            open=df["Open"],
+            high=df["High"],
+            low=df["Low"],
+            close=df["Close"],
+            name="Price"
+        ))
+
+        fig.update_layout(
+            template="plotly_dark",
+            xaxis_rangeslider_visible=False,
+            height=500
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
 
         st.divider()
 
-        # ---------------- RSI CHART ---------------- #
-        st.subheader("📉 RSI Indicator")
-        st.line_chart(df["RSI"])
+        # ---------------- MACD ---------------- #
+        st.subheader("📊 MACD Indicator")
+
+        macd_fig = go.Figure()
+        macd_fig.add_trace(go.Scatter(
+            x=df.index, y=df["MACD"],
+            mode="lines", name="MACD"
+        ))
+        macd_fig.add_trace(go.Scatter(
+            x=df.index, y=df["MACD_Signal"],
+            mode="lines", name="Signal Line"
+        ))
+
+        macd_fig.update_layout(
+            template="plotly_dark",
+            height=400
+        )
+
+        st.plotly_chart(macd_fig, use_container_width=True)
 
         st.divider()
 
-        # ---------------- VOLUME CHART ---------------- #
+        # ---------------- RSI ---------------- #
+        st.subheader("📉 RSI")
+
+        rsi_fig = go.Figure()
+        rsi_fig.add_trace(go.Scatter(
+            x=df.index, y=df["RSI"],
+            mode="lines", name="RSI"
+        ))
+        rsi_fig.add_hline(y=70)
+        rsi_fig.add_hline(y=30)
+
+        rsi_fig.update_layout(
+            template="plotly_dark",
+            height=400
+        )
+
+        st.plotly_chart(rsi_fig, use_container_width=True)
+
+        st.divider()
+
+        # ---------------- VOLUME ---------------- #
         st.subheader("📊 Volume")
-        st.bar_chart(df["Volume"])
 
-        st.divider()
+        volume_fig = go.Figure()
+        volume_fig.add_trace(go.Bar(
+            x=df.index, y=df["Volume"],
+            name="Volume"
+        ))
 
-        # ---------------- FUNDAMENTALS ---------------- #
-        st.subheader("📑 Fundamental Snapshot")
+        volume_fig.update_layout(
+            template="plotly_dark",
+            height=300
+        )
 
-        info = ticker.info
-
-        pe = info.get("trailingPE", "N/A")
-        pb = info.get("priceToBook", "N/A")
-        roe = info.get("returnOnEquity", "N/A")
-        eps = info.get("trailingEps", "N/A")
-        market_cap = info.get("marketCap", 0)
-
-        if roe != "N/A":
-            roe = round(roe * 100, 2)
-
-        if market_cap:
-            market_cap = round(market_cap / 10000000, 2)
-
-        f1, f2, f3, f4, f5 = st.columns(5)
-
-        f1.metric("P/E", pe)
-        f2.metric("P/B", pb)
-        f3.metric("ROE %", roe)
-        f4.metric("EPS", eps)
-        f5.metric("Market Cap (Cr)", market_cap)
+        st.plotly_chart(volume_fig, use_container_width=True)
 
     else:
-        st.error("No data found for this symbol.")
+        st.error("No data found.")
