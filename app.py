@@ -3,18 +3,19 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import scipy.stats as stats
 import time
 
-st.set_page_config(page_title="360° Stock Analyzer", layout="wide")
+st.set_page_config(page_title="360° Stock EDA Engine", layout="wide")
 
-st.title("📊 360° Equity Analysis Engine")
-st.markdown("Fundamental + Technical + Risk + AI Scoring Model")
+st.title("📊 360° Financial Exploratory Data Analysis Engine")
+st.markdown("Technical + Fundamental + Risk + Statistical EDA + AI Scoring")
 
 # -------------------------------------------------
 # SAFE DATA FETCH WITH CACHING
 # -------------------------------------------------
 
-@st.cache_data(ttl=600)  # cache for 10 minutes
+@st.cache_data(ttl=600)
 def fetch_stock_data(symbol):
     try:
         ticker = yf.Ticker(symbol)
@@ -64,12 +65,7 @@ def calculate_rsi(data, window=14):
     return 100 - (100 / (1 + rs))
 
 
-# -------------------------------------------------
-# AI Scoring
-# -------------------------------------------------
-
 def ai_scoring_model(revenue_cagr, profit_cagr, sharpe, volatility, rsi):
-
     fundamental_score = 0
     technical_score = 0
     risk_score = 0
@@ -123,31 +119,133 @@ if symbol:
 
     with st.spinner("Fetching data safely..."):
         history, financials = fetch_stock_data(symbol)
-        time.sleep(1)  # slight delay to avoid burst calls
+        time.sleep(1)
 
     if history is None or history.empty:
-        st.error("⚠ Data not available or Yahoo rate limit exceeded. Try again after few minutes.")
+        st.error("⚠ Data not available or Yahoo rate limit exceeded.")
         st.stop()
 
-    st.subheader(symbol)
+    st.subheader(f"Stock Selected: {symbol}")
 
     # -------------------------------------------------
-    # Technical Indicators
+    # EDA SECTION
+    # -------------------------------------------------
+
+    st.header("📊 Exploratory Data Analysis")
+
+    st.subheader("📋 Data Overview")
+    col1, col2 = st.columns(2)
+    col1.write("Dataset Shape:", history.shape)
+    col2.write("Date Range:",
+               f"{history.index.min().date()} to {history.index.max().date()}")
+
+    st.write("Summary Statistics")
+    st.dataframe(history.describe())
+
+    st.write("Missing Values")
+    st.dataframe(history.isnull().sum())
+
+    # -------------------------------------------------
+    # Feature Engineering
     # -------------------------------------------------
 
     history["Returns"] = history["Close"].pct_change()
     history["RSI"] = calculate_rsi(history["Close"])
     history["EMA20"] = history["Close"].ewm(span=20).mean()
     history["EMA50"] = history["Close"].ewm(span=50).mean()
-    history["Upper"] = history["Close"].rolling(20).mean() + 2 * history["Close"].rolling(20).std()
-    history["Lower"] = history["Close"].rolling(20).mean() - 2 * history["Close"].rolling(20).std()
 
-    sharpe_ratio = calculate_sharpe_ratio(history["Returns"].dropna())
-    volatility = calculate_volatility(history["Returns"].dropna())
-    latest_rsi = history["RSI"].iloc[-1]
+    returns = history["Returns"].dropna()
 
     # -------------------------------------------------
-    # Fundamental CAGR
+    # Distribution Analysis
+    # -------------------------------------------------
+
+    st.subheader("📊 Return Distribution")
+
+    fig_hist = go.Figure()
+    fig_hist.add_trace(go.Histogram(x=returns, nbinsx=60))
+    st.plotly_chart(fig_hist, use_container_width=True)
+
+    skewness = stats.skew(returns)
+    kurt = stats.kurtosis(returns)
+
+    st.write(f"Skewness: {round(skewness,2)}")
+    st.write(f"Kurtosis: {round(kurt,2)}")
+
+    # -------------------------------------------------
+    # Outlier Detection
+    # -------------------------------------------------
+
+    st.subheader("🚨 Outlier Detection")
+
+    Q1 = returns.quantile(0.25)
+    Q3 = returns.quantile(0.75)
+    IQR = Q3 - Q1
+
+    outliers = returns[
+        (returns < Q1 - 1.5*IQR) |
+        (returns > Q3 + 1.5*IQR)
+    ]
+
+    st.write("Extreme Return Days:", len(outliers))
+
+    # -------------------------------------------------
+    # Rolling Volatility
+    # -------------------------------------------------
+
+    history["Rolling_Volatility"] = (
+        returns.rolling(30).std() * np.sqrt(252) * 100
+    )
+
+    st.subheader("📈 Rolling Volatility (30-Day)")
+
+    fig_vol = go.Figure()
+    fig_vol.add_trace(go.Scatter(
+        x=history.index,
+        y=history["Rolling_Volatility"],
+        name="Rolling Volatility"
+    ))
+    st.plotly_chart(fig_vol, use_container_width=True)
+
+    # -------------------------------------------------
+    # Drawdown Analysis
+    # -------------------------------------------------
+
+    st.subheader("📉 Drawdown Analysis")
+
+    history["Cumulative"] = (1 + returns).cumprod()
+    history["Peak"] = history["Cumulative"].cummax()
+    history["Drawdown"] = (
+        history["Cumulative"] - history["Peak"]
+    ) / history["Peak"]
+
+    fig_dd = go.Figure()
+    fig_dd.add_trace(go.Scatter(
+        x=history.index,
+        y=history["Drawdown"],
+        name="Drawdown"
+    ))
+    st.plotly_chart(fig_dd, use_container_width=True)
+
+    st.write("Maximum Drawdown:",
+             round(history["Drawdown"].min()*100,2), "%")
+
+    # -------------------------------------------------
+    # Risk Metrics
+    # -------------------------------------------------
+
+    sharpe_ratio = calculate_sharpe_ratio(returns)
+    volatility = calculate_volatility(returns)
+    latest_rsi = history["RSI"].iloc[-1]
+
+    st.header("📉 Risk Metrics")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Sharpe Ratio", sharpe_ratio if sharpe_ratio else "N/A")
+    col2.metric("Volatility (%)", volatility if volatility else "N/A")
+    col3.metric("Latest RSI", round(latest_rsi, 2))
+
+    # -------------------------------------------------
+    # Fundamental Growth
     # -------------------------------------------------
 
     revenue_cagr = None
@@ -158,6 +256,11 @@ if symbol:
             revenue_cagr = calculate_cagr(financials.loc["Total Revenue"])
         if "Net Income" in financials.index:
             profit_cagr = calculate_cagr(financials.loc["Net Income"])
+
+    st.header("📈 5-Year Growth")
+    col1, col2 = st.columns(2)
+    col1.metric("Revenue CAGR (%)", revenue_cagr if revenue_cagr else "N/A")
+    col2.metric("Profit CAGR (%)", profit_cagr if profit_cagr else "N/A")
 
     # -------------------------------------------------
     # AI Score
@@ -171,44 +274,21 @@ if symbol:
         latest_rsi
     )
 
-    # -------------------------------------------------
-    # Display Metrics
-    # -------------------------------------------------
-
-    st.subheader("📉 Risk Metrics")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Sharpe Ratio", sharpe_ratio if sharpe_ratio else "N/A")
-    col2.metric("Volatility (%)", volatility if volatility else "N/A")
-    col3.metric("Latest RSI", round(latest_rsi, 2))
-
-    st.subheader("📈 5-Year Growth")
-    col1, col2 = st.columns(2)
-    col1.metric("Revenue CAGR (%)", revenue_cagr if revenue_cagr else "N/A")
-    col2.metric("Profit CAGR (%)", profit_cagr if profit_cagr else "N/A")
-
-    st.subheader("🤖 AI Investment Score")
+    st.header("🤖 AI Investment Score")
     st.metric("Overall Score", score)
     st.success(f"Investment Grade: {grade}")
 
     # -------------------------------------------------
-    # Chart
+    # Insight Summary
     # -------------------------------------------------
 
-    fig = go.Figure()
+    st.header("🧠 EDA Insight Summary")
 
-    fig.add_trace(go.Candlestick(
-        x=history.index,
-        open=history["Open"],
-        high=history["High"],
-        low=history["Low"],
-        close=history["Close"],
-        name="Candlestick"
-    ))
+    if volatility and volatility > 30:
+        st.warning("High volatility environment detected.")
 
-    fig.add_trace(go.Scatter(x=history.index, y=history["EMA20"], name="EMA 20"))
-    fig.add_trace(go.Scatter(x=history.index, y=history["EMA50"], name="EMA 50"))
-    fig.add_trace(go.Scatter(x=history.index, y=history["Upper"], name="Upper Band"))
-    fig.add_trace(go.Scatter(x=history.index, y=history["Lower"], name="Lower Band"))
+    if skewness < 0:
+        st.warning("Negative skew suggests downside risk dominance.")
 
-    fig.update_layout(height=650)
-    st.plotly_chart(fig, use_container_width=True)
+    if history["Drawdown"].min() < -0.3:
+        st.error("Significant historical crash observed.")
