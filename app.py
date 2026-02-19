@@ -136,8 +136,9 @@ if symbol:
     st.subheader("📋 Data Overview")
     col1, col2 = st.columns(2)
     col1.write(f"Dataset Shape: {history.shape}")
-    col2.write("Date Range:",
-               f"{history.index.min().date()} to {history.index.max().date()}")
+    col2.write(
+    f"Date Range: {history.index.min().date()} to {history.index.max().date()}"
+)
 
     st.write("Summary Statistics")
     st.dataframe(history.describe())
